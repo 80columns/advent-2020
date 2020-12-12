@@ -96,7 +96,11 @@ namespace _7 {
         static async Task Main(string[] args) {
             var bag_entries = await File.ReadAllLinesAsync("input.txt", Encoding.UTF8);
 
-            // part 1
+            /*
+             * Part 1
+             *
+             * Find the number of bags that could contain a shiny gold bag
+             */
             Console.WriteLine(
                 bag_entries.Select(z => (key: z.Split("bags contain", StringSplitOptions.None)[0].Replace(" ", string.Empty), value: Regex.Replace(Regex.Replace(z.Split("bags contain", StringSplitOptions.None)[1].TrimEnd('.'), "([0-9]*)", string.Empty), "bag(s)?", string.Empty).Replace(" ", string.Empty)))
                            .Select(z => new KeyValuePair<string, HashSet<string>>(z.key, z.value.Split(',').ToHashSet<string>())).ToList()
@@ -105,7 +109,11 @@ namespace _7 {
                            .Count()
             );
 
-            // part 2
+            /*
+             * Part 2
+             *
+             * Find the total number of bags that could be contained inside a shiny gold bag
+             */
             Console.WriteLine(
                 bag_entries.Select(z => (key: z.Split("bags contain", StringSplitOptions.None)[0].Replace(" ", string.Empty), value: Regex.Replace(z.Split("bags contain", StringSplitOptions.None)[1].TrimEnd('.'), "bag(s)?", string.Empty).Trim()))
                            .Select(z => new KeyValuePair<string, List<string>>(z.key, z.value.Split(',').Select(z => z.Trim()).Select(z => z.Substring(0, z.LastIndexOf(' ')) + z.Substring(z.LastIndexOf(' ') + 1)).ToList())).ToList()
