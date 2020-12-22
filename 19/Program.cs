@@ -76,49 +76,59 @@ namespace _19 {
 
             Console.WriteLine(parsed_rule);
 
-            var matching_messages = 0;
+            var matching_message_count = 0;
 
             foreach (var message in messages) {
                 var message_index = 0;
                 var message_index_stack = new Stack<int>();
                 var previous_match = false;
+                var previous_char_right_paren = false;
 
-                for (var rule_index = 0; rule_index < parsed_rule.Length; rule_index++) {
+                Console.WriteLine($"processing message {message}...");
+                Console.WriteLine();
+
+                for (var rule_index = 0; rule_index < parsed_rule.Length && message_index < message.Length; rule_index++) {
                     Console.WriteLine($"ri => {rule_index}");
                     Console.WriteLine($"rule[ri] => {parsed_rule[rule_index]}");
                     Console.WriteLine($"mi => {message_index}");
                     Console.WriteLine($"message[mi] => {message[message_index]}");
                     Console.WriteLine($"previous_match => {previous_match}");
                     Console.WriteLine($"mi stack => {string.Join(",", message_index_stack)}");
+                    Console.WriteLine();
 
                     if (parsed_rule[rule_index] == '(') {
                         // group open
-                        message_index_stack.Push(message_index);
+                        if (!previous_char_right_paren) {
+                            message_index_stack.Push(message_index);
+                        }
+
+                        previous_char_right_paren = false;
                     } else if (parsed_rule[rule_index] == '|') {
                         // or
                         if (previous_match) {
                             // don't need to check the right-hand side of the or statement, so find the closing parentheses index of the statement
                             var found_right_paren = false;
-                            var existing_left_paren = false;
+                            var existing_left_paren_count = 0;
 
                             while (!found_right_paren) {
                                 rule_index++;
 
                                 if (parsed_rule[rule_index] == '(') {
-                                    existing_left_paren = true;
-                                } else if (parsed_rule[rule_index] == ')' && !existing_left_paren) {
-                                    found_right_paren = true;
-                                    message_index_stack.Pop();
+                                    existing_left_paren_count++;
+                                } else if (parsed_rule[rule_index] == ')') {
+                                    if (existing_left_paren_count > 0) {
+                                        existing_left_paren_count--;
+                                    } else {
+                                        found_right_paren = true;
+                                    }
                                 }
                             }
                         }
+
+                        previous_char_right_paren = false;
                     } else if (parsed_rule[rule_index] == ')') {
                         // group close
-                        if (previous_match == false) {
-                            message_index = message_index_stack.Pop();
-                        } else {
-                            message_index_stack.Pop();
-                        }
+                        previous_char_right_paren = true;
                     } else {
                         // letter
                         if (parsed_rule[rule_index] == message[message_index]) {
@@ -127,20 +137,36 @@ namespace _19 {
                         } else {
                             previous_match = false;
 
-                            var next_or = parsed_rule.IndexOf('|', rule_index);
-                            var next_closed_paren = parsed_rule.IndexOf(')', rule_index);
+                            var found_pipe = false;
+                            var existing_left_paren_count = 0;
 
-                            rule_index = next_or < next_closed_paren ? next_or : next_closed_paren;
+                            while (!found_pipe) {
+                                rule_index++;
+
+                                if (parsed_rule[rule_index] == '(') {
+                                    existing_left_paren_count++;
+                                } else if (parsed_rule[rule_index] == ')' && existing_left_paren_count > 0) {
+                                    existing_left_paren_count--;
+                                } else if (parsed_rule[rule_index] == ')' && existing_left_paren_count == 0) {
+                                    message_index = message_index_stack.Pop();
+                                } else if (parsed_rule[rule_index] == '|' && existing_left_paren_count == 0) {
+                                    found_pipe = true;
+                                }
+                            }
                         }
+                    
+                        previous_char_right_paren = false;
                     }
                 }
 
                 if (message_index == message.Length) {
-                    matching_messages++;
+                    Console.WriteLine($"message {message} matched!");
+                    Console.WriteLine();
+                    matching_message_count++;
                 }
             }
 
-            Console.WriteLine(matching_messages);
+            Console.WriteLine(matching_message_count);
 
             Console.WriteLine("Hello World!");
         }
