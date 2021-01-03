@@ -19,38 +19,119 @@ namespace _20 {
         Reversed
     }
 
-    class Tile {
-        public long id;
-        public char[,] text;
-        public Dictionary<TileSide, BitArray> sides;
-        public Dictionary<TileSide, (long id, TileSide side, TileDirection direction)?> matches;
-        public Dictionary<TileSide, long?> adjacent_tiles;
-        public bool adjacent_tiles_populated;
+    static class ArrayExtensions {
+        public static void Print(this char[,] _array) {
+            for (var i = 0; i < _array.GetLength(0); i++) {
+                for (var j = 0; j < _array.GetLength(1); j++) {
+                    Console.Write(_array[i, j]);
+                }
 
-        public int match_count { get => matches.Count(match => match.Value.HasValue); }
+                Console.WriteLine();
+            }
+        }
+    }
+
+    static class TileSideExtensions {
+        public static bool IsOpposite(this TileSide _side, TileSide _other_side) {
+            return (_side == TileSide.Left && _other_side == TileSide.Right)
+                || (_side == TileSide.Right && _other_side == TileSide.Left)
+                || (_side == TileSide.Top && _other_side == TileSide.Bottom)
+                || (_side == TileSide.Bottom && _other_side == TileSide.Top);
+        }
+
+        public static bool IsVerticallySame(this TileSide _side, TileSide _other_side) {
+            return (_side == _other_side)
+                && (_side == TileSide.Top || _side == TileSide.Bottom);
+        }
+
+        public static bool IsHorizontallySame(this TileSide _side, TileSide _other_side) {
+            return (_side == _other_side)
+                && (_side == TileSide.Left || _side == TileSide.Right);
+        }
+
+        public static TileSide GetOppositeSide(this TileSide _side) {
+            if (_side == TileSide.Left) {
+                return TileSide.Right;
+            } else if (_side == TileSide.Right) {
+                return TileSide.Left;
+            } else if (_side == TileSide.Top) {
+                return TileSide.Bottom;
+            } else {
+                return TileSide.Top;
+            }
+        }
+    
+        public static bool ValueEquals(this BitArray _side, BitArray _other_side) {
+            var equal = true;
+
+            // for the purposes of this program, both bit array objects are assumed to have the same length
+            for (var i = 0; i < 10; i++) {
+                if (_side[i] != _other_side[i]) {
+                    equal = false;
+                    break;
+                }
+            }
+
+            return equal;
+        }
+
+        public static bool ReversedValueEquals(this BitArray _side, BitArray _other_side) {
+            var equal = true;
+
+            // for the purposes of this program, both bit array objects are assumed to have the same length
+            for (var i = 0; i < 10; i++) {
+                if (_side[i] != _other_side[9 - i]) {
+                    equal = false;
+                    break;
+                }
+            }
+
+            return equal;
+        }
+    }
+
+    class Tile {
+        /*
+        Tile x:
+          0123456789
+        0 #.#.#####. 0
+        1 #.......#. 1
+        2 .#.......# 2
+        3 #.......#. 3
+        4 ......#..# 4
+        5 ...#...... 5
+        6 ........## 6
+        7 ...#..#..# 7
+        8 .......... 8
+        9 ..#....#.# 9
+          0123456789
+        */
+
+        public long id;
+        private char[,] text;
+        public char[,] borderless_text {
+            get {
+                var temp_text = new char[8,8];
+
+                for (int i = 0, j = 1; i < 8; i++, j++) {
+                    for (int k = 0, l = 1; k < 8; k++, l++) {
+                        temp_text[i, k] = this.text[j, l];
+                    }
+                }
+
+                return temp_text;
+            }
+        }
+        private Dictionary<TileSide, BitArray> sides;
+        public Dictionary<TileSide, long?> adjacent_tiles;
 
         public Tile(string _tile_text) {
-            /*
-            Tile 2381:
-            #.#.#####.
-            #.......#.
-            .#.......#
-            #.......#.
-            ......#..#
-            ...#......
-            ........##
-            ...#..#..#
-            ..........
-            ..#....#.#
-            */
-
             var tile_parts = _tile_text.Split(':');
             var tile_lines = tile_parts[1].Split("\n", StringSplitOptions.RemoveEmptyEntries);
 
             this.id = Convert.ToInt64(tile_parts[0].Replace("Tile ", string.Empty).Replace(":", string.Empty));
             this.text = new char[10,10];
             this.sides = new Dictionary<TileSide, BitArray>();
-            this.matches = new Dictionary<TileSide, (long id, TileSide side, TileDirection direction)?>();
             this.adjacent_tiles = new Dictionary<TileSide, long?>();
 
             // populate left and right sides
@@ -77,91 +158,584 @@ namespace _20 {
                     this.text[i, j] = tile_lines[i][j];
                 }
             }
-
-            // initialize adjacent tile pointers
-            foreach (var side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
-                this.adjacent_tiles.Add(side, null);
-            }
-
-            this.adjacent_tiles_populated = false;
         }
     
-        public void PopulateMatchingSides(Tile _other) {
-            var other_side_matches = new Dictionary<TileSide, Dictionary<(TileSide other_side, TileDirection other_direction), int>>() {
-                [TileSide.Left] = new Dictionary<(TileSide other_side, TileDirection other_direction), int>(),
-                [TileSide.Right] = new Dictionary<(TileSide other_side, TileDirection other_direction), int>(),
-                [TileSide.Top] = new Dictionary<(TileSide other_side, TileDirection other_direction), int>(),
-                [TileSide.Bottom] = new Dictionary<(TileSide other_side, TileDirection other_direction), int>()
-            };
+        public BitArray Side(TileSide _side) {
+            return this.sides[_side];
+        }
 
-            foreach (var side1 in other_side_matches.Keys) {
-                foreach (var side2 in other_side_matches.Keys) {
-                    other_side_matches[side1].Add((side2, TileDirection.Normal), 0);
-                    other_side_matches[side1].Add((side2, TileDirection.Reversed), 0);
-                }
-            }
+        public void FlipVertically() {
+            // flip the sides vertically
+            var new_top_side = new BitArray(this.sides[TileSide.Bottom]);
+            var new_bottom_side = new BitArray(this.sides[TileSide.Top]);
+            var new_left_side = new BitArray(10);
+            var new_right_side = new BitArray(10);
 
-            // compare current sides to other sides (normal + reversed direction)
             for (var i = 0; i < 10; i++) {
-                foreach (var side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
-                    foreach (var other_side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
-                        if (this.sides[side][i] == _other.sides[other_side][i]) {
-                            other_side_matches[side][(other_side, TileDirection.Normal)] += 1;
-                        }
+                new_left_side[i] = this.sides[TileSide.Left][9 - i];
+                new_right_side[i] = this.sides[TileSide.Right][9 - i];
+            }
 
-                        if (this.sides[side][i] == _other.sides[other_side][9 - i]) {
-                            other_side_matches[side][(other_side, TileDirection.Reversed)] += 1;
-                        }
-                    }
+            this.sides.Clear();
+
+            this.sides.Add(TileSide.Left, new_left_side);
+            this.sides.Add(TileSide.Right, new_right_side);
+            this.sides.Add(TileSide.Top, new_top_side);
+            this.sides.Add(TileSide.Bottom, new_bottom_side);
+
+            // flip the text vertically
+            var temp_text = new char[10,10];
+
+            for (var i = 0; i < 10; i++) {
+                for (var j = 0; j < 10; j++) {
+                    temp_text[9 - i, j] = this.text[i, j];
                 }
             }
 
-            foreach (var side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
-                foreach (var other_side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
-                    if (other_side_matches[side][(other_side, TileDirection.Normal)] == 10) {
-                        this.matches.Add(side, (_other.id, other_side, TileDirection.Normal));
-                    }
+            this.text = temp_text;
+        }
 
-                    if (other_side_matches[side][(other_side, TileDirection.Reversed)] == 10) {
-                        this.matches.Add(side, (_other.id, other_side, TileDirection.Reversed));
+        public void FlipHorizontally() {
+            // flip the sides horizontally
+            var new_left_side = new BitArray(this.sides[TileSide.Right]);
+            var new_right_side = new BitArray(this.sides[TileSide.Left]);
+            var new_top_side = new BitArray(10);
+            var new_bottom_side = new BitArray(10);
+
+            for (var i = 0; i < 10; i++) {
+                new_top_side[i] = this.sides[TileSide.Top][9 - i];
+                new_bottom_side[i] = this.sides[TileSide.Bottom][9 - i];
+            }
+
+            this.sides.Clear();
+
+            this.sides.Add(TileSide.Left, new_left_side);
+            this.sides.Add(TileSide.Right, new_right_side);
+            this.sides.Add(TileSide.Top, new_top_side);
+            this.sides.Add(TileSide.Bottom, new_bottom_side);
+
+            // flip the text horizontally
+            var temp_text = new char[10, 10];
+
+            for (var i = 0; i < 10; i++) {
+                for (var j = 0; j < 10; j++) {
+                    temp_text[i, 9 - j] = this.text[i, j];
+                }
+            }
+
+            this.text = temp_text;
+        }
+    
+        public void RotateLeft() {
+            // rotate the sides left
+            var new_left_side = new BitArray(10);
+            var new_right_side = new BitArray(10);
+            var new_top_side = new BitArray(this.sides[TileSide.Right]);
+            var new_bottom_side = new BitArray(this.sides[TileSide.Left]);
+
+            for (var i = 0; i < 10; i++) {
+                new_left_side[i] = this.sides[TileSide.Top][9 - i];
+                new_right_side[i] = this.sides[TileSide.Bottom][9 - i];
+            }
+
+            this.sides.Clear();
+
+            this.sides.Add(TileSide.Left, new_left_side);
+            this.sides.Add(TileSide.Right, new_right_side);
+            this.sides.Add(TileSide.Top, new_top_side);
+            this.sides.Add(TileSide.Bottom, new_bottom_side);
+
+            // rotate the text left
+            var temp_text = new char[10, 10];
+
+            for (var i = 0; i < 10; i++) {
+                for (var j = 0; j < 10; j++) {
+                    temp_text[9 - j, i] = this.text[i, j];
+                }
+            }
+
+            this.text = temp_text;
+        }
+
+        public void RotateRight() {
+            // rotate the sides right
+            var new_left_side = new BitArray(this.sides[TileSide.Bottom]);
+            var new_right_side = new BitArray(this.sides[TileSide.Top]);
+            var new_top_side = new BitArray(10);
+            var new_bottom_side = new BitArray(10);
+
+            for (var i = 0; i < 10; i++) {
+                new_top_side[i] = this.sides[TileSide.Left][9 - i];
+                new_bottom_side[i] = this.sides[TileSide.Right][9 - i];
+            }
+
+            this.sides.Clear();
+
+            this.sides.Add(TileSide.Left, new_left_side);
+            this.sides.Add(TileSide.Right, new_right_side);
+            this.sides.Add(TileSide.Top, new_top_side);
+            this.sides.Add(TileSide.Bottom, new_bottom_side);
+
+            // rotate the text right
+            var temp_text = new char[10, 10];
+
+            for (var i = 0; i < 10; i++) {
+                for (var j = 0; j < 10; j++) {
+                    temp_text[j, 9 - i] = this.text[i, j];
+                }
+            }
+
+            this.text = temp_text;
+        }
+    
+        public void Print() {
+            Console.WriteLine($"{this.id}:");
+
+            this.text.Print();
+        }
+    }
+
+    class Grid {
+        private Dictionary<long, Tile> tiles;
+        private List<Tile> unmatched_tiles;
+        private char[,] image_text;
+
+        public Grid() {
+            this.tiles = new Dictionary<long, Tile>();
+            this.unmatched_tiles = new List<Tile>();
+            this.image_text = null;
+        }
+
+        public void AddTile(Tile _new_tile) {
+            if (this.MatchTileToGrid(ref _new_tile)) {
+                this.tiles.Add(_new_tile.id, _new_tile);
+            } else {
+                this.unmatched_tiles.Add(_new_tile);
+            }
+        }
+
+        public void ResolveUnmatchedTiles() {
+            while (this.unmatched_tiles.Any()) {
+                for (var i = this.unmatched_tiles.Count - 1; i >= 0; i--) {
+                    var temp_tile = this.unmatched_tiles[i];
+
+                    if (this.MatchTileToGrid(ref temp_tile)) {
+                        this.tiles.Add(temp_tile.id, temp_tile);
+                        this.unmatched_tiles.RemoveAt(i);
                     }
                 }
             }
         }
 
-        // flip tile, reversing top & bottom
-        public void FlipTopBottom() {
-            // flip the tile's text vertically
-            var temp_text = new char[,] { this.text };
+        public void ResolveAdjacentTiles() {
+            var all_sides = new HashSet<TileSide>() { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom };
 
-            for (var i = temp_text.GetLength(0) - 1; i >= 0; i--) {
+            foreach (var tile_id in this.tiles.Keys) {
+                // if this tile's adjacent tiles list is possibly incomplete, attempt to match the remaining ones
+                if (this.tiles[tile_id].adjacent_tiles.Count < 4) {
+                    foreach (var tile_side in all_sides.Except(this.tiles[tile_id].adjacent_tiles.Keys)) {
+                        foreach (var other_tile_id in this.tiles.Keys.Where(key => key != tile_id)) {
+                            if (this.tiles[tile_id].Side(tile_side).ValueEquals(this.tiles[other_tile_id].Side(tile_side.GetOppositeSide()))) {
+                                this.tiles[tile_id].adjacent_tiles.Add(tile_side, other_tile_id);
+                                this.tiles[other_tile_id].adjacent_tiles.Add(tile_side.GetOppositeSide(), tile_id);
 
-            }
-
-            // swap the top & bottom sides of the array
-            var top_array = this.sides[TileSide.Top];
-            var bottom_array = this.sides[TileSide.Bottom];
-
-            this.sides[TileSide.Top] = bottom_array;
-            this.sides[TileSide.Bottom] = top_array;
-
-            // flip the direction of the left/right tile matches
-            foreach (var match_side in this.matches.Keys) {
-                if (match_side == TileSide.Left) {
-                    if (this.matches[match_side].Value.direction == TileDirection.Normal) {
-                        this.matches[match_side] = (this.matches[match_side].Value.id, this.matches[match_side].Value.side, TileDirection.Reversed);
-                    } else {
-                        this.matches[match_side] = (this.matches[match_side].Value.id, this.matches[match_side].Value.side, TileDirection.Normal);
+                                break;
+                            }
+                        }
                     }
-                } else if (match_side == TileSide.Right) {
-
                 }
             }
         }
 
-        public void FlipLeftRight() {
-            // flip tile, reversing left & right
+        private bool MatchTileToGrid(ref Tile _new_tile) {
+            var new_tile_matched = false;
 
+            if (this.tiles.Any()) {
+                foreach (var tile_id in this.tiles.Keys) {
+                    // find a matching tile in the current tile dictionary, then flip/rotate the new tile to fit the grid
+                    foreach (var new_tile_side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
+                        foreach (var existing_tile_side in new TileSide[] { TileSide.Left, TileSide.Right, TileSide.Top, TileSide.Bottom }) {
+                            if (_new_tile.Side(new_tile_side).ValueEquals(this.tiles[tile_id].Side(existing_tile_side))) {
+                                // found a match, now flip/rotate the new tile and assign adjacent tiles
+                                new_tile_matched = true;
+                                
+                                if (new_tile_side.IsOpposite(existing_tile_side)) {
+                                    // if the sides are opposites & they align as-is, then no flipping/rotation is necessary and they can be assigned directly as adjacent tiles
+                                } else if (new_tile_side.IsVerticallySame(existing_tile_side)) {
+                                    // if the sides are the same & they align top-top or bottom-bottom, then flip the new tile vertically
+                                    _new_tile.FlipVertically();
+                                } else if (new_tile_side.IsHorizontallySame(existing_tile_side)) {
+                                    // if the sides are the same & they align left-left or right-right, then flip the new tile horizontally
+                                    _new_tile.FlipHorizontally();
+                                } else if (
+                                    (new_tile_side == TileSide.Left && existing_tile_side == TileSide.Top)
+                                || (new_tile_side == TileSide.Right && existing_tile_side == TileSide.Bottom)
+                                ) {
+                                    // rotate the new tile left so the left becomes the bottom
+                                    // OR
+                                    // rotate the new tile left so the right becomes the top
+                                    _new_tile.RotateLeft();
+                                } else if (
+                                    (new_tile_side == TileSide.Left && existing_tile_side == TileSide.Bottom)
+                                || (new_tile_side == TileSide.Right && existing_tile_side == TileSide.Top)
+                                ) {
+                                    // rotate the new tile right so the left becomes the top, then flip horizontally to match correctly
+                                    // OR
+                                    // rotate the new tile right so the right becomes the bottom, then flip horizontally to match correctly
+                                    _new_tile.RotateRight();
+                                    _new_tile.FlipHorizontally();
+                                } else if (
+                                    (new_tile_side == TileSide.Top && existing_tile_side == TileSide.Left)
+                                || (new_tile_side == TileSide.Bottom && existing_tile_side == TileSide.Right)
+                                ) {
+                                    // rotate the new tile right so the top becomes the right
+                                    // OR
+                                    // rotate the new tile right so the bottom becomes the left
+                                    _new_tile.RotateRight();
+                                } else if (
+                                    (new_tile_side == TileSide.Top && existing_tile_side == TileSide.Right)
+                                || (new_tile_side == TileSide.Bottom && existing_tile_side == TileSide.Left)
+                                ) {
+                                    // rotate the new tile left so the top becomes the left, then flip vertically to match correctly
+                                    // OR
+                                    // rotate the new tile left so the bottom becomes the right, then flip vertically to match correctly
+                                    _new_tile.RotateLeft();
+                                    _new_tile.FlipVertically();
+                                }
+                            } else if (_new_tile.Side(new_tile_side).ReversedValueEquals(this.tiles[tile_id].Side(existing_tile_side))) {
+                                // found a match, now flip/rotate the new tile and assign adjacent tiles
+                                new_tile_matched = true;
+
+                                if (new_tile_side.IsOpposite(existing_tile_side)) {
+                                    // if the sides are opposites & they align reversed, then flip the new tile vertically or horizontally depending on which sides match
+                                    if (new_tile_side == TileSide.Left || new_tile_side == TileSide.Right) {
+                                        _new_tile.FlipVertically();
+                                    } else {
+                                        _new_tile.FlipHorizontally();
+                                    }
+                                } else if (new_tile_side.IsVerticallySame(existing_tile_side)) {
+                                    // if the sides are the same & they align top-top or bottom-bottom reversed, then flip the new tile vertically and then horizontally
+                                    _new_tile.FlipVertically();
+                                    _new_tile.FlipHorizontally();
+                                } else if (new_tile_side.IsHorizontallySame(existing_tile_side)) {
+                                    // if the sides are the same & they align left-left or right-right reversed, then flip the new tile horizontally and then vertically
+                                    _new_tile.FlipHorizontally();
+                                    _new_tile.FlipVertically();
+                                } else if (
+                                    (new_tile_side == TileSide.Left && existing_tile_side == TileSide.Top)
+                                || (new_tile_side == TileSide.Right && existing_tile_side == TileSide.Bottom)
+                                ) {
+                                    // rotate the new tile left so the left becomes the bottom, then flip horizontally to match correctly
+                                    // OR
+                                    // rotate the new tile left so the right becomes the top, then flip horizontally to match correctly
+                                    _new_tile.RotateLeft();
+                                    _new_tile.FlipHorizontally();
+                                } else if (
+                                    (new_tile_side == TileSide.Left && existing_tile_side == TileSide.Bottom)
+                                || (new_tile_side == TileSide.Right && existing_tile_side == TileSide.Top)
+                                ) {
+                                    // rotate the new tile right so the left becomes the top
+                                    // OR
+                                    // rotate the new tile right so the right becomes the bottom
+                                    _new_tile.RotateRight();
+                                } else if (
+                                    (new_tile_side == TileSide.Top && existing_tile_side == TileSide.Left)
+                                || (new_tile_side == TileSide.Bottom && existing_tile_side == TileSide.Right)
+                                ) {
+                                    // rotate the new tile right so the top becomes the right, then flip vertically to match correctly
+                                    // OR
+                                    // rotate the new tile right so the bottom becomes the left, then flip vertically to match correctly
+                                    _new_tile.RotateRight();
+                                    _new_tile.FlipVertically();
+                                } else if (
+                                    (new_tile_side == TileSide.Top && existing_tile_side == TileSide.Right)
+                                || (new_tile_side == TileSide.Bottom && existing_tile_side == TileSide.Left)
+                                ) {
+                                    // rotate the new tile left so the top becomes the left
+                                    // OR
+                                    // rotate the new tile left so the bottom becomes the right
+                                    _new_tile.RotateLeft();
+                                }
+                            }
+
+                            if (new_tile_matched) {
+                                _new_tile.adjacent_tiles.Add(existing_tile_side.GetOppositeSide(), tile_id);
+                                this.tiles[tile_id].adjacent_tiles.Add(existing_tile_side, _new_tile.id);
+
+                                break;
+                            }
+                        }
+
+                        if (new_tile_matched) {
+                            break;
+                        }
+                    }
+
+                    if (new_tile_matched) {
+                        break;
+                    }
+                }
+            } else {
+                // set to true automatically as the new tile is the first one
+                new_tile_matched = true;
+            }
+
+            return new_tile_matched;
+        }
+
+        public long ComputeCornerIdProduct() {
+            var product = (long)1;
+
+            foreach (var tile in this.tiles.Where(tile => tile.Value.adjacent_tiles.Count == 2)) {
+                product *= tile.Key;
+            }
+
+            return product;
+        }
+
+        public void PopulateImage() {
+            var tiles_processed = 0;
+            var image_row_index = 0;
+            var image_column_index = 0;
+            var chars_per_image_side = (int)Math.Sqrt(this.tiles.Count) * 8;
+
+            this.image_text = new char[chars_per_image_side, chars_per_image_side];
+
+            // build the image starting with the top left tile
+            var current_tile_id = this.tiles.Where(tile => tile.Value.adjacent_tiles.Count == 2 && tile.Value.adjacent_tiles.ContainsKey(TileSide.Bottom) && tile.Value.adjacent_tiles.ContainsKey(TileSide.Right)).First().Key;
+
+            while (tiles_processed < this.tiles.Count) {
+                while (image_column_index < chars_per_image_side) {
+                    // add the borderless text from the current tile to the image text
+                    var borderless_text = this.tiles[current_tile_id].borderless_text;
+
+                    for (var i = 0; i < 8; i++, image_row_index++) {
+                        for (var j = 0; j < 8; j++, image_column_index++) {
+                            this.image_text[image_row_index, image_column_index] = borderless_text[i, j];
+                        }
+
+                        image_column_index -= 8;
+                    }
+
+                    // reset the row index of the image, and move the column index to the right
+                    image_row_index -= 8;
+                    image_column_index += 8;
+
+                    tiles_processed++;
+
+                    // move to the next tile on the right, if this isn't the last one
+                    if (this.tiles[current_tile_id].adjacent_tiles.ContainsKey(TileSide.Right)) {
+                        current_tile_id = this.tiles[current_tile_id].adjacent_tiles[TileSide.Right].Value;
+                    }
+                }
+
+                image_row_index += 8;
+                image_column_index = 0;
+
+                // go back to the left of the grid, then to the 1st left tile 1 row down
+                while (this.tiles[current_tile_id].adjacent_tiles.ContainsKey(TileSide.Left)) {
+                    current_tile_id = this.tiles[current_tile_id].adjacent_tiles[TileSide.Left].Value;
+                }
+
+                // if this tile has a tile beneath it, then start from that row next
+                if (this.tiles[current_tile_id].adjacent_tiles.ContainsKey(TileSide.Bottom)) {
+                    current_tile_id = this.tiles[current_tile_id].adjacent_tiles[TileSide.Bottom].Value;
+                }
+            }
+        }
+
+        public int GetSeaMonsterCount() {
+            var sea_monster_count = 0;
+
+            /* search for sea monsters:
+
+                                 # 
+               #    ##    ##    ###
+                #  #  #  #  #  #   
+
+               [i, j] = #
+
+               [i-18, j+1] = #
+               [i-13, j+1] = #
+               [i-12, j+1] = #
+               [i-7, j+1] = #
+               [i-6, j+1] = #
+               [i-1, j+1] = #
+               [i, j+1] = #
+               [i+1, j+1] = #
+
+               [i-17, j+2] = #
+               [i-14, j+2] = #
+               [i-11, j+2] = #
+               [i-8, j+2] = #
+               [i-5, j+2] = #
+               [i-2, j+2] = #
+             */
+
+            void FindSeaMonsters() {
+                for (var i = 0; i < this.image_text.GetLength(0); i++) {
+                    for (var j = 0; j < this.image_text.GetLength(1); j++) {
+                        if (
+                            i - 18 >= 0
+                        && i + 1 < this.image_text.GetLength(0)
+                        && j + 2 < this.image_text.GetLength(1)
+                        && this.image_text[i, j] == '#'
+                        && this.image_text[i-18, j+1] == '#'
+                        && this.image_text[i-13, j+1] == '#'
+                        && this.image_text[i-12, j+1] == '#'
+                        && this.image_text[i-7, j+1] == '#'
+                        && this.image_text[i-6, j+1] == '#'
+                        && this.image_text[i-1, j+1] == '#'
+                        && this.image_text[i, j+1] == '#'
+                        && this.image_text[i+1, j+1] == '#'
+                        && this.image_text[i-17, j+2] == '#'
+                        && this.image_text[i-14, j+2] == '#'
+                        && this.image_text[i-11, j+2] == '#'
+                        && this.image_text[i-8, j+2] == '#'
+                        && this.image_text[i-5, j+2] == '#'
+                        && this.image_text[i-2, j+2] == '#'
+                        ) {
+                            sea_monster_count++;
+                        }
+                    }
+                }
+            }
+
+            // search for sea monsters using the original image orientation
+            FindSeaMonsters();
+
+            for (var i = 0; i < 3; i++) {
+                if (sea_monster_count == 0) {
+                    // rotate the image left, then search again
+                    this.RotateImageLeft();
+                    FindSeaMonsters();
+                } else {
+                    break;
+                }
+            }
+
+            if (sea_monster_count == 0) {
+                // rotate the image left to the original image orientation
+                // flip the image horizontally
+                this.RotateImageLeft();
+                this.FlipImageHorizontally();
+                FindSeaMonsters();
+            }
+
+            for (var i = 0; i < 3; i++) {
+                if (sea_monster_count == 0) {
+                    // rotate the image left, then search again
+                    this.RotateImageLeft();
+                    FindSeaMonsters();
+                } else {
+                    break;
+                }
+            }
+
+            if (sea_monster_count == 0) {
+                // rotate the image left to the original horizontally-flipped image orientation
+                // flip the image horizontally to the original image orientation
+                // flip the image vertically
+                this.RotateImageLeft();
+                this.FlipImageHorizontally();
+                this.FlipImageVertically();
+                FindSeaMonsters();
+            }
+
+            for (var i = 0; i < 3; i++) {
+                if (sea_monster_count == 0) {
+                    // rotate the image left, then search again
+                    this.RotateImageLeft();
+                    FindSeaMonsters();
+                } else {
+                    break;
+                }
+            }
+
+            if (sea_monster_count == 0) {
+                // rotate the image left to the original vertically-flipped image orientation
+                // flip the image horizontally (to a vertical-horizontal flip orientation)
+                this.RotateImageLeft();
+                this.FlipImageHorizontally();
+            }
+
+            for (var i = 0; i < 3; i++) {
+                if (sea_monster_count == 0) {
+                    // rotate the image left, then search again
+                    this.RotateImageLeft();
+                    FindSeaMonsters();
+                } else {
+                    break;
+                }
+            }
+
+            return sea_monster_count;
+        }
+
+        private void FlipImageVertically() {
+            var temp_image = new char[this.image_text.GetLength(0), this.image_text.GetLength(1)];
+
+            for (var i = 0; i < this.image_text.GetLength(0); i++) {
+                for (var j = 0; j < this.image_text.GetLength(1); j++) {
+                    temp_image[this.image_text.GetLength(0) - 1 - i, j] = this.image_text[i, j];
+                }
+            }
+
+            this.image_text = temp_image;
+        }
+
+        private void FlipImageHorizontally() {
+            var temp_image = new char[this.image_text.GetLength(0), this.image_text.GetLength(1)];
+
+            for (var i = 0; i < this.image_text.GetLength(0); i++) {
+                for (var j = 0; j < this.image_text.GetLength(1); j++) {
+                    temp_image[i, this.image_text.GetLength(1) - 1 - j] = this.image_text[i, j];
+                }
+            }
+
+            this.image_text = temp_image;
+        }
+
+        private void RotateImageLeft() {
+            var temp_image = new char[this.image_text.GetLength(0), this.image_text.GetLength(1)];
+
+            for (var i = 0; i < this.image_text.GetLength(0); i++) {
+                for (var j = 0; j < this.image_text.GetLength(1); j++) {
+                    temp_image[this.image_text.GetLength(1) - 1 - j, i] = this.image_text[i, j];
+                }
+            }
+
+            this.image_text = temp_image;
+        }
+
+        private void RotateImageRight() {
+            var temp_image = new char[this.image_text.GetLength(0), this.image_text.GetLength(1)];
+
+            for (var i = 0; i < this.image_text.GetLength(0); i++) {
+                for (var j = 0; j < this.image_text.GetLength(1); j++) {
+                    temp_image[j, this.image_text.GetLength(0) - 1 - i] = this.image_text[i, j];
+                }
+            }
+
+            this.image_text = temp_image;
+        }
+
+        public int GetImageHashCharCount() {
+            var hash_char_count = 0;
+
+            for (var i = 0; i < this.image_text.GetLength(0); i++) {
+                for (var j = 0; j < this.image_text.GetLength(1); j++) {
+                    if (this.image_text[i, j] == '#') {
+                        hash_char_count++;
+                    }
+                }
+            }
+
+            return hash_char_count;
+        }
+
+        public Tile this[long index] {
+            get => this.tiles[index];
         }
     }
 
@@ -169,94 +743,35 @@ namespace _20 {
         static async Task Main(string[] args) {
             var input = await File.ReadAllTextAsync("input.txt", Encoding.UTF8);
             var tile_texts = input.Split("\n\n", StringSplitOptions.RemoveEmptyEntries);
-            var tiles = new Dictionary<long, Tile>();
-            var multiplication_result = (long)1;
-
-            foreach (var tile_text in tile_texts) {
-                var new_tile = new Tile(tile_text);
-
-                tiles.Add(new_tile.id, new_tile);
-            }
-
-            foreach (var tile in tiles) {
-                foreach (var other_tile in tiles.Where(t => t.Key != tile.Key)) {
-                    tile.Value.PopulateMatchingSides(other_tile.Value);
-                }
-            }
 
             /*
              * Part 1
              *
              * Find the corners of the image
              */
-            foreach (var tile in tiles.Where(tile => tile.Value.match_count == 2)) {
-                multiplication_result *= tile.Key;
+            var grid = new Grid();
+
+            foreach (var tile_text in tile_texts) {
+                grid.AddTile(new Tile(tile_text));
             }
 
-            Console.WriteLine(multiplication_result);
+            grid.ResolveUnmatchedTiles();
+            grid.ResolveAdjacentTiles();
+
+            Console.WriteLine(grid.ComputeCornerIdProduct());
 
             /*
              * Part 2
              *
-             * Find the monsters in the image
+             * Find the monsters in the image,
+             * then the count of # in the image that are not part of a sea monster
              */
-            var temp_tile_id = tiles.First(tile => tile.Value.match_count == 2).Key;
+            grid.PopulateImage();
 
+            var sea_monster_count = grid.GetSeaMonsterCount();
+            var hash_char_count = grid.GetImageHashCharCount();
 
-
-            while (!tiles[temp_tile_id].adjacent_tiles_populated) {
-                Console.WriteLine($"processing tile {temp_tile_id}...");
-
-                // get matches for non-populated adjacent tiles
-                var matches = tiles[temp_tile_id].matches.Where(match => match.Value.HasValue && !tiles[temp_tile_id].adjacent_tiles[match.Key].HasValue);
-
-                foreach (var match in matches) {
-                    if (
-                        match.Value.Value.direction == TileDirection.Normal
-                     && (match.Key == TileSide.Left && match.Value.Value.side == TileSide.Right)
-                     && (match.Key == TileSide.Right && match.Value.Value.side == TileSide.Left)
-                     && (match.Key == TileSide.Top && match.Value.Value.side == TileSide.Bottom)
-                     && (match.Key == TileSide.Bottom && match.Value.Value.side == TileSide.Top)
-                    ) {
-                        // default case where the adjacent tile does not need to be flipped or rotated
-                        tiles[temp_tile_id].adjacent_tiles.Add(match.Key, match.Value.Value.id);
-                        tiles[match.Value.Value.id].adjacent_tiles.Add(match.Value.Value.side, temp_tile_id);
-                    } else if (
-                        match.Value.Value.direction == TileDirection.Reversed
-                     && (match.Key == TileSide.Left && match.Value.Value.side == TileSide.Right)
-                     && (match.Key == TileSide.Right && match.Value.Value.side == TileSide.Left)
-                    ) {
-                        // flip adjacent tile, reversing top & bottom
-                        tiles[match.Value.Value.id].FlipTopBottom();
-
-                        // reverse the left/right tile direction of the adjacent tile's matching tiles
-
-
-                        tiles[temp_tile_id].adjacent_tiles.Add(match.Key, match.Value.Value.id);
-                        tiles[match.Value.Value.id].adjacent_tiles.Add(match.Value.Value.side, temp_tile_id);
-                    } else if (
-                        match.Value.Value.direction == TileDirection.Reversed
-                     && (match.Key == TileSide.Top && match.Value.Value.side == TileSide.Bottom)
-                     && (match.Key == TileSide.Bottom && match.Value.Value.side == TileSide.Top)
-                    ) {
-                        // flip adjacent tile, reversing left & right
-                        tiles[match.Value.Value.id].FlipLeftRight();
-
-                        tiles[temp_tile_id].adjacent_tiles.Add(match.Key, match.Value.Value.id);
-                        tiles[match.Value.Value.id].adjacent_tiles.Add(match.Value.Value.side, temp_tile_id);
-                    } else if () {
-                        // rotate adjacent tile left
-
-                    } else if () {
-                        // rotate adjacent tile right
-
-                    }
-                }
-
-                tiles[temp_tile_id].adjacent_tiles_populated = true;
-            }
-
-            Console.WriteLine("Hello World!");
+            Console.WriteLine(hash_char_count - (sea_monster_count * 15));
         }
     }
 }
